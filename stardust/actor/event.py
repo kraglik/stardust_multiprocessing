@@ -7,4 +7,4 @@ from typing import Any, Optional
 class Event:
     sender: ActorRef
     message: Any
-    context_code: Optional[int]
+    context_code: Optional[int] = None

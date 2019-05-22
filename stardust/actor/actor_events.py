@@ -32,7 +32,7 @@ class SpawnEvent(ActorEvent):
     parent: ActorRef
     actor_type: Type
     args: Tuple[Any, ...]
-    kwargs: Dict[Any]
+    kwargs: dict
 
 
 @dataclass

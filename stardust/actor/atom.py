@@ -11,6 +11,13 @@ from .actor_events import (
 )
 
 
+class Status:
+    pass
+
+
+Done = Status()
+
+
 class Atom:
     def __init__(self, actor: Actor, mailbox: Mailbox):
         self.__actor = actor
@@ -34,10 +41,32 @@ class Atom:
         return len(self.__mailbox) > 0
 
     def execute(self):
-        """
-        TODO: IMPLEMENT
-        :return: None
-        """
+        event = self.dequeue()
+
+        if event is not None:
+            generator = self.actor.behavior(event.message, event.sender)
+
+            if generator is not None:
+                try:
+                    actor_event = next(generator)
+
+                    while True:
+                        if isinstance(actor_event, SpawnEvent):
+                            actor_ref = yield actor_event
+
+                            actor_event = generator.send(actor_ref)
+                            continue
+
+                        elif isinstance(actor_event, KillEvent)\
+                                or isinstance(actor_event, SendEvent):
+
+                            yield actor_event
+                            actor_event = next(generator)
+
+                except StopIteration:
+                    pass
+
+        yield Done
 
 
 

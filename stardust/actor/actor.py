@@ -1,6 +1,10 @@
 from .actor_ref import ActorRef
 from typing import Callable, Any, Generator, Union, Type
-from .actor_events import SendEvent, AskEvent, ResponseEvent, SpawnEvent, KillEvent, StashEvent, UnstashEvent
+from .actor_events import (
+    ActorEvent, SendEvent, AskEvent, ResponseEvent,
+    SpawnEvent, KillEvent,
+    StashEvent, UnstashEvent
+)
 
 
 class Actor:
@@ -13,7 +17,7 @@ class Actor:
         self.__ref: ActorRef = ActorRef(address)
         self.__parent: ActorRef = ActorRef(parent_address)
         self.__context: int = hash(self.__address)  # I don't care right now
-        self.__behavior: Union[Callable[[Actor, Any, ActorRef], None], Generator[Actor, Any, ActorRef]] = self.receive
+        self.__behavior: Union[Callable[[Actor, Any, ActorRef], None], Generator[ActorEvent, Any, Any]] = self.receive
         self.__previous_behavior = None
 
     @property
@@ -47,6 +51,10 @@ class Actor:
         :return: Context code value.
         """
         return self.__context
+
+    @property
+    def behavior(self) -> Union[Callable[['Actor', Any, ActorRef], None], Generator[ActorEvent, Any, Any]]:
+        return self.__behavior
 
     def next_context(self):
         self.__context += 1
@@ -88,7 +96,7 @@ class Actor:
             target=actor_ref
         )
 
-    def become(self, behavior: Union[Callable[['Actor', Any, ActorRef], None], Generator['Actor', Any, ActorRef]]):
+    def become(self, behavior: Union[Callable[['Actor', Any, ActorRef], None], Generator[ActorEvent, Any, Any]]):
         assert callable(behavior), 'Behavior must be callable.'
 
         self.__previous_behavior = self.__behavior
