@@ -1,0 +1,2 @@
+class ActorSystem:
+    pass

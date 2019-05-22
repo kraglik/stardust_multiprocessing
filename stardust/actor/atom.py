@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .actor import Actor
+from stardust.actor import Actor
 from .actor_ref import ActorRef
 from .mailbox import Mailbox
 from .event import Event
