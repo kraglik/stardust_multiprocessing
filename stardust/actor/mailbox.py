@@ -1,5 +1,5 @@
 from typing import Optional, List
-from .event import Event
+from .system_events import MessageEvent
 
 
 class Mailbox:
@@ -12,11 +12,11 @@ class Mailbox:
             self.__events.extend(initial_mailbox)
             self.__events_in_queue += len(initial_mailbox)
 
-    def enqueue(self, event: Event):
+    def enqueue(self, event: MessageEvent):
         self.__events.append(event)
         self.__events_in_queue += 1
 
-    def dequeue(self) -> Optional[Event]:
+    def dequeue(self) -> Optional[MessageEvent]:
         event = None if self.__events_in_queue == 0 else self.__events.pop(0)
         self.__events_in_queue = max(self.__events_in_queue - 1, 0)
 
@@ -27,7 +27,7 @@ class Mailbox:
         return self.__address
 
     @property
-    def events(self) -> List[Event]:
+    def events(self) -> List[MessageEvent]:
         return self.__events
 
     def __len__(self):

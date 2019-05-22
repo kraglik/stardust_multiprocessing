@@ -1,6 +1,6 @@
 import random
 from .system_messages import StartupMessage
-from .event import Event
+from .system_events import MessageEvent
 from .actor import Actor
 from .actor_ref import ActorRef
 from .atom import Atom, Done
@@ -40,7 +40,7 @@ class ActorSystem:
         mailbox = Mailbox(
             actor_address=address,
             initial_mailbox=[
-                Event(sender=self.system_ref, message=StartupMessage())
+                MessageEvent(sender=self.system_ref, message=StartupMessage())
             ]
         )
 
@@ -64,7 +64,7 @@ class ActorSystem:
             del self.actors_by_names[address]
 
     def send(self, actor_ref, message, sender_ref=None):
-        event = Event(message=message, sender=sender_ref)
+        event = MessageEvent(message=message, sender=sender_ref)
 
         target = self.actors_by_names[actor_ref.address]
 

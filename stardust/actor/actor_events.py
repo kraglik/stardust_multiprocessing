@@ -33,6 +33,7 @@ class SpawnEvent(ActorEvent):
     actor_type: Type
     args: Tuple[Any, ...]
     kwargs: dict
+    address: str
 
 
 @dataclass

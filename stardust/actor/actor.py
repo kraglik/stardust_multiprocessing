@@ -1,3 +1,5 @@
+import uuid
+
 from .actor_ref import ActorRef
 from typing import Callable, Any, Generator, Union, Type
 from .actor_events import (
@@ -5,14 +7,15 @@ from .actor_events import (
     SpawnEvent, KillEvent,
     StashEvent, UnstashEvent
 )
+from abc import ABC
 
 
-class Actor:
+class Actor(ABC):
     """
 
     """
 
-    def __init__(self, address: str, parent_address: str):
+    def __init__(self, address: str, parent_address: str, *args, **kwargs):
         self.__address: str = address
         self.__ref: ActorRef = ActorRef(address)
         self.__parent: ActorRef = ActorRef(parent_address)
@@ -87,7 +90,8 @@ class Actor:
             parent=self.ref,
             actor_type=actor_type,
             args=args,
-            kwargs=kwargs
+            kwargs=kwargs,
+            address=f"{self.__address}/{actor_type.__name__}-{str(uuid.uuid1())}"
         )
 
     def kill(self, actor_ref: ActorRef) -> KillEvent:

@@ -3,7 +3,7 @@ from typing import Optional
 from stardust.actor import Actor
 from .actor_ref import ActorRef
 from .mailbox import Mailbox
-from .event import Event
+from .system_events import MessageEvent
 from .actor_events import (
     ActorEvent, SendEvent, AskEvent, ResponseEvent,
     SpawnEvent, KillEvent,
@@ -31,10 +31,10 @@ class Atom:
     def mailbox(self) -> Mailbox:
         return self.__mailbox
 
-    def enqueue(self, event: Event):
+    def enqueue(self, event: MessageEvent):
         self.__mailbox.enqueue(event)
 
-    def dequeue(self) -> Optional[Event]:
+    def dequeue(self) -> Optional[MessageEvent]:
         return self.__mailbox.dequeue()
 
     def awaits_execution(self) -> bool:
