@@ -1,10 +1,11 @@
-import queue
+from multiprocessing.queues import Queue
+from typing import Optional
 
 
 class Pipe:
-    def __init__(self):
-        self.in_queue = queue.Queue()
-        self.out_queue = queue.Queue()
+    def __init__(self, in_queue: Optional[Queue] = None, out_queue: Optional[Queue] = None):
+        self.in_queue = in_queue or Queue()
+        self.out_queue = out_queue or Queue()
 
     @property
     def parent_queues(self):

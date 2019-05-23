@@ -1,24 +1,25 @@
 import threading
+import multiprocessing as mp
 import uuid
 
 from concurrent.futures import Future, wait
-from threading import Thread, Event as ThreadingEvent, Condition, Lock, RLock, Barrier, Semaphore
+from .executor_event_manager import IncomingEventManager, OutgoingEventManager, ThreadingQueue
 from queue import Queue
 from typing import List, Dict, Set, Type, Generator, Optional
 
-from .actor_ref import ActorRef
-from .actor import Actor
-from .atom import Atom
-from .serialized_atom import SerializedAtom
-from .mailbox import Mailbox
-from .system_messages import StartupMessage
-from .system_events import MessageEvent, ActorDeathEvent
-from .pipe import Pipe
+from stardust.actor.actor_ref import ActorRef
+from stardust.actor.actor import Actor
+from stardust.actor.atom import Atom
+from stardust.actor.serialized_atom import SerializedAtom
+from stardust.actor.mailbox import Mailbox
+from stardust.actor.system_messages import StartupMessage
+from stardust.actor.system_events import MessageEvent, ActorDeathEvent, SystemEvent
+from stardust.actor.pipe import Pipe
 
 
-class ExecutionService(Thread):
+class ExecutorService(mp.Process):
     def __init__(self, pipe: Pipe, system_address: str, *args, **kwargs):
-        super(ExecutionService, self).__init__(*args, **kwargs)
+        super(ExecutorService, self).__init__(*args, **kwargs)
 
         self.pipe: Pipe = pipe
         self.atom_by_name: Dict[str, Atom] = dict()
@@ -26,10 +27,25 @@ class ExecutionService(Thread):
         self.suspended_atoms: Dict[str, Generator] = dict()
         self.system_address: str = system_address
 
+        self.incoming_events: ThreadingQueue = ThreadingQueue()
+        self.outgoing_events: ThreadingQueue = ThreadingQueue()
+
         self.candidates = set()
 
+        self.incoming_event_manager = IncomingEventManager(
+            executor_incoming_event_queue=self.pipe.child_input_queue,
+            incoming_events_queue=self.incoming_events
+        )
+
+        self.outgoing_event_manager = OutgoingEventManager(
+            executor_outgoing_event_queue=self.pipe.child_output_queue,
+            incoming_event_queue=self.incoming_events,
+            outgoing_event_queue=self.outgoing_events,
+            local_actors=self.atom_by_name
+        )
+
     def spawn(self, actor_class: Type[Actor], parent: Optional[ActorRef], *args, **kwargs) -> ActorRef:
-        address = parent.address + '/' + str(uuid.uuid1())
+        address = parent.address + '/' + actor_class.__name__ + '-' + str(uuid.uuid1())
 
         actor = actor_class(
             address=address,
@@ -51,7 +67,7 @@ class ExecutionService(Thread):
 
         return ActorRef(address=address)
 
-    def kill(self, actor_ref: ActorRef):
+    def kill_actor(self, actor_ref: ActorRef):
         if actor_ref.address in self.atom_by_name:
             atom = self.atom_by_name[actor_ref.address]
             self.candidates.remove(atom)
@@ -84,5 +100,11 @@ class ExecutionService(Thread):
         pass
 
     def run(self) -> None:
-        pass
+        self.incoming_event_manager.run()
+        self.outgoing_event_manager.run()
+
+        while True:
+            event: SystemEvent = self.incoming_events.get()
+
+            # TODO: PROCESS EVENT
 

@@ -7,13 +7,14 @@ class SystemEvent:
     pass
 
 
-@dataclass
+@dataclass(frozen=True)
 class MessageEvent(SystemEvent):
     sender: ActorRef
+    target: ActorRef
     message: Any
     context_code: Optional[int] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class ActorDeathEvent(SystemEvent):
     actor_address: str
