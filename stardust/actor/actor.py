@@ -85,7 +85,7 @@ class Actor(ABC):
             message=message
         )
 
-    def spawn(self, actor_type: Type, address: Optional[str] = None, *args, **kwargs) -> SpawnEvent:
+    def spawn(self, actor_type: Type['Actor'], address: Optional[str] = None, *args, **kwargs) -> SpawnEvent:
         return SpawnEvent(
             parent=self.ref,
             actor_type=actor_type,
