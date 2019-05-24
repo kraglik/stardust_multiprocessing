@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from .actor_ref import ActorRef
-from typing import Any, Type, List, Dict, Tuple
+from typing import Any, Type, List, Dict, Tuple, Optional
+import stardust.actor
 
 
 class ActorEvent:
@@ -12,6 +13,7 @@ class SendEvent(ActorEvent):
     sender: ActorRef
     message: Any
     target: ActorRef
+    context_code: Optional[int] = None
 
 
 @dataclass
@@ -30,7 +32,7 @@ class ResponseEvent(ActorEvent):
 @dataclass
 class SpawnEvent(ActorEvent):
     parent: ActorRef
-    actor_type: Type
+    actor_type: Type[stardust.actor.Actor]
     args: Tuple[Any, ...]
     kwargs: dict
     address: str

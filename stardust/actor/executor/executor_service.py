@@ -1,110 +1,124 @@
+import random
 import threading
 import multiprocessing as mp
-import uuid
+from typing import Dict, Set, Generator, Optional
 
-from concurrent.futures import Future, wait
-from .executor_event_manager import IncomingEventManager, OutgoingEventManager, ThreadingQueue
-from queue import Queue
-from typing import List, Dict, Set, Type, Generator, Optional
-
+from stardust.actor.actor_events import (
+    ActorEvent,
+    SendEvent, AskEvent,
+    SpawnEvent, KillEvent
+)
+from stardust.actor.system_events import (
+    SystemEvent,
+    MessageEvent,
+    ActorSpawnEvent,
+    ActorDeathEvent)
 from stardust.actor.actor_ref import ActorRef
-from stardust.actor.actor import Actor
-from stardust.actor.atom import Atom
-from stardust.actor.serialized_atom import SerializedAtom
-from stardust.actor.mailbox import Mailbox
-from stardust.actor.system_messages import StartupMessage
-from stardust.actor.system_events import MessageEvent, ActorDeathEvent, SystemEvent
+from stardust.actor.atom import Atom, Done
+from stardust.actor.executor.executor_event_manager import ExecutorEventManager
+
 from stardust.actor.pipe import Pipe
 
 
 class ExecutorService(mp.Process):
-    def __init__(self, pipe: Pipe, system_address: str, *args, **kwargs):
+    def __init__(self, pipe: Pipe, system_ref: ActorRef, *args, **kwargs):
         super(ExecutorService, self).__init__(*args, **kwargs)
 
         self.pipe: Pipe = pipe
+        self.system_ref = system_ref
+
         self.atom_by_name: Dict[str, Atom] = dict()
         self.local_addresses: Set[str] = set()
-        self.suspended_atoms: Dict[str, Generator] = dict()
-        self.system_address: str = system_address
 
-        self.incoming_events: ThreadingQueue = ThreadingQueue()
-        self.outgoing_events: ThreadingQueue = ThreadingQueue()
+        self.suspended_atoms: Dict[str, Generator] = dict()
+        self.suspended_atoms_lock = threading.Lock()
 
         self.candidates = set()
+        self.candidates_lock = threading.Lock()
 
-        self.incoming_event_manager = IncomingEventManager(
-            executor_incoming_event_queue=self.pipe.child_input_queue,
-            incoming_events_queue=self.incoming_events
+        self.execution_condition = threading.Condition()
+        self.running: bool = True
+
+        def stop():
+            self.running = False
+
+        self.event_manager = ExecutorEventManager(
+            system_ref=system_ref,
+            atom_by_name=self.atom_by_name,
+            local_addresses=self.local_addresses,
+            candidates=self.candidates,
+            candidates_lock=self.candidates_lock,
+            suspended_atoms=self.suspended_atoms,
+            suspended_atoms_lock=self.suspended_atoms_lock,
+            execution_condition=self.execution_condition,
+            pipe=self.pipe,
+            stop=stop
         )
 
-        self.outgoing_event_manager = OutgoingEventManager(
-            executor_outgoing_event_queue=self.pipe.child_output_queue,
-            incoming_event_queue=self.incoming_events,
-            outgoing_event_queue=self.outgoing_events,
-            local_actors=self.atom_by_name
-        )
-
-    def spawn(self, actor_class: Type[Actor], parent: Optional[ActorRef], *args, **kwargs) -> ActorRef:
-        address = parent.address + '/' + actor_class.__name__ + '-' + str(uuid.uuid1())
-
-        actor = actor_class(
-            address=address,
-            parent_address=self.system_address if not parent else parent.address,
-            *args,
-            **kwargs
-        )
-        mailbox = Mailbox(
-            actor_address=address,
-            initial_mailbox=[
-                StartupMessage()
-            ]
-        )
-
-        atom = Atom(actor=actor, mailbox=mailbox)
-
-        self.atom_by_name[address] = atom
-        self.candidates.add(atom)
-
-        return ActorRef(address=address)
-
-    def kill_actor(self, actor_ref: ActorRef):
-        if actor_ref.address in self.atom_by_name:
-            atom = self.atom_by_name[actor_ref.address]
-            self.candidates.remove(atom)
-
-            del self.atom_by_name[actor_ref.address]
-            del self.suspended_atoms[actor_ref.address]
-
-            self.pipe.child_output_queue.put(ActorDeathEvent(actor_address=actor_ref.address))
-
-    def send(self, actor_ref: ActorRef, event: MessageEvent):
-        if actor_ref.address in self.atom_by_name:
-            atom = self.atom_by_name[actor_ref.address]
-
-            atom.enqueue(event)
-            self.candidates.add(atom)
-
-        else:
-            self.pipe.child_output_queue.put(event)
-
-    def create_temporary_atom(self, actor_address: str) -> Atom:
-        # TODO: IMPLEMENT MIGRATIONS AND LOAD-BALANCING
-        pass
-
-    def serialize(self, actor_ref: ActorRef) -> Optional[SerializedAtom]:
-        # TODO: IMPLEMENT MIGRATIONS AND LOAD-BALANCING
-        pass
-
-    def deserialize(self, serialized_atom: SerializedAtom) -> ActorRef:
-        # TODO: IMPLEMENT MIGRATIONS AND LOAD-BALANCING
-        pass
+        self._previous_candidate: Optional[Atom] = None
 
     def run(self) -> None:
-        self.incoming_event_manager.run()
-        self.outgoing_event_manager.run()
 
-        while True:
-            event: SystemEvent = self.incoming_events.get()
+        self.event_manager.run()
 
-            # TODO: PROCESS EVENT
+        with self.execution_condition:
+            while True:
+                if len(self.candidates) == 0:
+                    self.execution_condition.wait()
+
+                if not self.running:
+                    break
+
+                self.candidates_lock.acquire()
+
+                candidates = self.candidates - {self._previous_candidate if len(self.candidates) > 1 else None}
+                candidate: Atom = random.choices(candidates, k=1)[0]
+                self.candidates.remove(candidate)
+
+                self.candidates_lock.release()
+
+                generator = candidate.execute()
+
+                actor_event: ActorEvent = next(generator)
+
+                while actor_event != Done:
+                    if isinstance(actor_event, SendEvent):
+                        self.pipe.child_output_queue.put_nowait(
+                            MessageEvent(
+                                sender=actor_event.sender,
+                                target=actor_event.target,
+                                message=actor_event.message,
+                                context_code=actor_event.context_code
+                            )
+                        )
+
+                    elif isinstance(actor_event, SpawnEvent):
+                        actor_ref = ActorRef(actor_event.address)
+
+                        self.pipe.child_output_queue.put_nowait(
+                            ActorSpawnEvent(
+                                actor_type=actor_event.actor_type,
+                                parent_ref=actor_event.parent,
+                                address=actor_event.address,
+                                args=actor_event.args,
+                                kwargs=actor_event.kwargs
+                            )
+                        )
+
+                        generator.send(actor_ref)
+
+                    elif isinstance(actor_event, KillEvent):
+                        self.pipe.child_output_queue.put_nowait(
+                            ActorDeathEvent(
+                                actor_ref=actor_event.target,
+                                sender=actor_event.sender
+                            )
+                        )
+
+        self.finalize()
+
+    def finalize(self):
+        self.event_manager.join()
+
+
 

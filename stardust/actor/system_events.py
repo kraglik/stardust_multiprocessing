@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from .actor_ref import ActorRef
-from typing import Any, Optional
+from .actor import Actor
+from typing import Any, Optional, Type, Tuple, Dict
 
 
 class SystemEvent:
@@ -17,4 +18,25 @@ class MessageEvent(SystemEvent):
 
 @dataclass(frozen=True)
 class ActorDeathEvent(SystemEvent):
-    actor_address: str
+    actor_ref: ActorRef
+    sender: ActorRef
+
+
+@dataclass(frozen=True)
+class ActorSpawnEvent(SystemEvent):
+    actor_type: Type[Actor]
+    parent_ref: ActorRef
+    address: str
+    args: Tuple[Any, ...]
+    kwargs: Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ActorSpawnNotificationEvent(SystemEvent):
+    address: str
+    error: Optional[Exception] = None
+
+
+@dataclass(frozen=True)
+class StopExecution(SystemEvent):
+    pass

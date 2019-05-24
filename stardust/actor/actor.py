@@ -1,7 +1,7 @@
 import uuid
 
 from .actor_ref import ActorRef
-from typing import Callable, Any, Generator, Union, Type
+from typing import Callable, Any, Generator, Union, Type, Optional
 from .actor_events import (
     ActorEvent, SendEvent, AskEvent, ResponseEvent,
     SpawnEvent, KillEvent,
@@ -15,10 +15,10 @@ class Actor(ABC):
 
     """
 
-    def __init__(self, address: str, parent_address: str, *args, **kwargs):
+    def __init__(self, address: str, parent: ActorRef, *args, **kwargs):
         self.__address: str = address
         self.__ref: ActorRef = ActorRef(address)
-        self.__parent: ActorRef = ActorRef(parent_address)
+        self.__parent: ActorRef = parent
         self.__context: int = hash(self.__address)  # I don't care right now
         self.__behavior: Union[Callable[[Actor, Any, ActorRef], None], Generator[ActorEvent, Any, Any]] = self.receive
         self.__previous_behavior = None
@@ -85,13 +85,13 @@ class Actor(ABC):
             message=message
         )
 
-    def spawn(self, actor_type: Type, *args, **kwargs) -> SpawnEvent:
+    def spawn(self, actor_type: Type, address: Optional[str] = None, *args, **kwargs) -> SpawnEvent:
         return SpawnEvent(
             parent=self.ref,
             actor_type=actor_type,
             args=args,
             kwargs=kwargs,
-            address=f"{self.__address}/{actor_type.__name__}-{str(uuid.uuid1())}"
+            address=address or f"{self.__address}/{actor_type.__name__}-{str(uuid.uuid1())}"
         )
 
     def kill(self, actor_ref: ActorRef) -> KillEvent:
