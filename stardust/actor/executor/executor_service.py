@@ -12,7 +12,7 @@ from stardust.actor.system_events import (
     SystemEvent,
     MessageEvent,
     ActorSpawnEvent,
-    ActorDeathEvent)
+    ActorDeathEvent, ExecutionStopped)
 from stardust.actor.actor_ref import ActorRef
 from stardust.actor.atom import Atom, Done
 from stardust.actor.executor.executor_event_manager import ExecutorEventManager
@@ -39,9 +39,6 @@ class ExecutorService(mp.Process):
         self.execution_condition = threading.Condition()
         self.running: bool = True
 
-        def stop():
-            self.running = False
-
         self.event_manager = ExecutorEventManager(
             system_ref=system_ref,
             atom_by_name=self.atom_by_name,
@@ -52,17 +49,25 @@ class ExecutorService(mp.Process):
             suspended_atoms_lock=self.suspended_atoms_lock,
             execution_condition=self.execution_condition,
             pipe=self.pipe,
-            stop=stop
+            stop=self.stop
         )
 
         self._previous_candidate: Optional[Atom] = None
 
-    def run(self) -> None:
-
-        self.event_manager.run()
+    def stop(self):
+        self.running = False
 
         with self.execution_condition:
-            while True:
+            self.execution_condition.notify_all()
+
+        self.pipe.child_output_queue.put(ExecutionStopped())
+
+    def run(self) -> None:
+
+        self.event_manager.start()
+
+        with self.execution_condition:
+            while self.running:
                 if len(self.candidates) == 0:
                     self.execution_condition.wait()
 
@@ -72,7 +77,7 @@ class ExecutorService(mp.Process):
                 self.candidates_lock.acquire()
 
                 candidates = self.candidates - {self._previous_candidate if len(self.candidates) > 1 else None}
-                candidate: Atom = random.choices(candidates, k=1)[0]
+                candidate: Atom = random.sample(candidates, k=1)[0]
                 self.candidates.remove(candidate)
 
                 self.candidates_lock.release()
@@ -92,6 +97,8 @@ class ExecutorService(mp.Process):
                             )
                         )
 
+                        actor_event = next(generator)
+
                     elif isinstance(actor_event, SpawnEvent):
                         actor_ref = ActorRef(actor_event.address)
 
@@ -105,7 +112,7 @@ class ExecutorService(mp.Process):
                             )
                         )
 
-                        generator.send(actor_ref)
+                        actor_event = generator.send(actor_ref)
 
                     elif isinstance(actor_event, KillEvent):
                         self.pipe.child_output_queue.put_nowait(
@@ -114,6 +121,8 @@ class ExecutorService(mp.Process):
                                 sender=actor_event.sender
                             )
                         )
+
+                        actor_event = next(generator)
 
         self.finalize()
 

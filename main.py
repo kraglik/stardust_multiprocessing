@@ -1,3 +1,5 @@
+import time
+
 from stardust import actor
 from stardust.actor import system_messages
 
@@ -31,9 +33,13 @@ class Ping(actor.Actor):
 
 def main():
     system = actor.ActorSystem()
-    ping_ref = system.spawn(Ping)
     system.run()
-    system.kill(ping_ref)
+
+    system.spawn(Ping)
+
+    time.sleep(0.25)
+
+    system.stop()
 
 
 if __name__ == '__main__':

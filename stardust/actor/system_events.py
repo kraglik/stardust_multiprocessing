@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+
+from stardust.actor.system_messages import StartupMessage
 from .actor_ref import ActorRef
 from .actor import Actor
 from typing import Any, Optional, Type, Tuple, Dict
@@ -17,13 +19,24 @@ class MessageEvent(SystemEvent):
 
 
 @dataclass(frozen=True)
-class ActorDeathEvent(SystemEvent):
+class ActorLifecycleEvent(SystemEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class ActorDeathEvent(ActorLifecycleEvent):
     actor_ref: ActorRef
     sender: ActorRef
 
 
 @dataclass(frozen=True)
-class ActorSpawnEvent(SystemEvent):
+class StartupEvent(ActorLifecycleEvent):
+    message = StartupMessage()
+    sender: ActorRef
+
+
+@dataclass(frozen=True)
+class ActorSpawnEvent(ActorLifecycleEvent):
     actor_type: Type[Actor]
     parent_ref: ActorRef
     address: str
@@ -32,11 +45,21 @@ class ActorSpawnEvent(SystemEvent):
 
 
 @dataclass(frozen=True)
-class ActorSpawnNotificationEvent(SystemEvent):
+class ActorSpawnNotificationEvent(ActorLifecycleEvent):
     address: str
     error: Optional[Exception] = None
 
 
 @dataclass(frozen=True)
 class StopExecution(SystemEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class ExecutionStopped(SystemEvent):
+    pass
+
+
+@dataclass(frozen=True)
+class StopSystemExecution(StopExecution):
     pass

@@ -12,9 +12,8 @@ from stardust.actor.system_events import (
     SystemEvent,
     MessageEvent,
     ActorSpawnEvent, ActorSpawnNotificationEvent, ActorDeathEvent,
-    StopExecution)
+    StopExecution, StartupEvent)
 from stardust.actor.mailbox import Mailbox
-from stardust.actor.system_messages import StartupMessage
 
 
 class ExecutorEventManager(threading.Thread):
@@ -64,7 +63,7 @@ class ExecutorEventManager(threading.Thread):
             mailbox = Mailbox(
                 actor_address=event.address,
                 initial_mailbox=[
-                    StartupMessage()
+                    StartupEvent(sender=self.system_ref)
                 ]
             )
 
@@ -77,7 +76,8 @@ class ExecutorEventManager(threading.Thread):
             self.atom_by_name[event.address] = atom
             self.candidates.add(atom)
 
-            self.execution_condition.notify_all()
+            with self.execution_condition:
+                self.execution_condition.notify_all()
 
         self.pipe.child_output_queue.put(
             ActorSpawnNotificationEvent(
@@ -109,7 +109,8 @@ class ExecutorEventManager(threading.Thread):
             self.candidates.add(atom)
             self.candidates_lock.release()
 
-            self.execution_condition.notify_all()
+            with self.execution_condition:
+                self.execution_condition.notify_all()
 
     def run(self) -> None:
 
