@@ -1,44 +1,50 @@
 import time
-
-from stardust import actor
-from stardust.actor import system_messages
+import stardust
 
 
-class Pong(actor.Actor):
+class Ping(stardust.Actor):
+    def __init__(self, *args, **kwargs):
+        super(Ping, self).__init__(*args, **kwargs)
+        self.n = 100_000
+
+    def receive(self, message, sender):
+        if isinstance(message, str):
+            self.n -= 1
+
+            if self.n % 1000 == 0:
+                print(self.n)
+
+            if self.n == 0:
+                yield self.kill(sender)
+                print('done')
+
+            else:
+                yield self.send(sender, 'ping')
+
+        elif isinstance(message, stardust.StartupMessage):
+            pong = yield self.spawn(Pong)
+            yield self.send(pong, 'ping')
+
+
+class Pong(stardust.Actor):
     def receive(self, message, sender):
         if isinstance(message, str):
             yield self.send(sender, 'pong')
 
 
-class Ping(actor.Actor):
-    def __init__(self, *args, **kwargs):
-        super(Ping, self).__init__(*args, **kwargs)
-        self.pong_ref = None
-
-    def receive(self, message, sender):
-
-        if isinstance(message, str):
-            print(message)
-
-            self.kill(self.pong_ref)
-            del self.pong_ref
-
-        elif isinstance(message, system_messages.StartupMessage):
-            self.pong_ref = yield self.spawn(Pong)
-
-            print('ping')
-
-            yield self.send(self.pong_ref, 'ping')
-
-
 def main():
-    system = actor.ActorSystem()
+    system = stardust.ActorSystem(
+        name="Ping-Pong",
+        config=stardust.SystemConfig(
+            num_processes=4
+        )
+    )
     system.run()
 
-    for i in range(1_000):
+    for _ in range(4):
         system.spawn(Ping)
 
-    time.sleep(5)
+    time.sleep(60)
 
     system.stop()
 

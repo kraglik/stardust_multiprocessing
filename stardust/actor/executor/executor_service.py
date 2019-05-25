@@ -21,12 +21,24 @@ from stardust.actor.pipe import Pipe
 
 
 class ExecutorService(mp.Process):
-    def __init__(self, pipe: Pipe, system_ref: ActorRef, *args, **kwargs):
+    def __init__(self,
+
+                 process_idx: int,
+                 pipe: Pipe,
+                 system_ref: ActorRef,
+                 process_idx_to_queue: Dict[int, mp.Queue],
+
+                 *args, **kwargs):
+
         super(ExecutorService, self).__init__(*args, **kwargs)
 
+        self.process_idx = process_idx
         self.pipe: Pipe = pipe
         self.system_ref = system_ref
+        self.process_idx_to_queue = process_idx_to_queue
 
+        self.actor_to_process: Dict[str, int] = dict()
+        self.actor_to_process_lock = threading.Lock()
         self.atom_by_name: Dict[str, Atom] = dict()
         self.local_addresses: Set[str] = set()
 
@@ -40,6 +52,7 @@ class ExecutorService(mp.Process):
         self.running: bool = True
 
         self.event_manager = ExecutorEventManager(
+            process_idx=self.process_idx,
             system_ref=system_ref,
             atom_by_name=self.atom_by_name,
             local_addresses=self.local_addresses,
@@ -48,6 +61,8 @@ class ExecutorService(mp.Process):
             suspended_atoms=self.suspended_atoms,
             suspended_atoms_lock=self.suspended_atoms_lock,
             execution_condition=self.execution_condition,
+            actor_to_process=self.actor_to_process,
+            actor_to_process_lock=self.actor_to_process_lock,
             pipe=self.pipe,
             stop=self.stop
         )
@@ -83,11 +98,12 @@ class ExecutorService(mp.Process):
 
                     if len(candidates) == 0:
                         self.candidates_lock.release()
-
                         continue
 
                 candidate: Atom = random.sample(candidates, 1)[0]
-                self.candidates.remove(candidate)
+
+                if len(candidate.mailbox) < 2:
+                    self.candidates.remove(candidate)
 
                 self.candidates_lock.release()
 
@@ -97,7 +113,25 @@ class ExecutorService(mp.Process):
 
                 while actor_event != Done:
                     if isinstance(actor_event, SendEvent):
-                        self.pipe.child_output_queue.put_nowait(
+                        queue = self.pipe.child_output_queue
+
+                        if actor_event.target.address in self.local_addresses:
+                            queue = self.pipe.child_input_queue
+
+                        else:
+                            process_idx = None
+
+                            self.actor_to_process_lock.acquire()
+
+                            if actor_event.target.address in self.actor_to_process:
+                                process_idx = self.actor_to_process[actor_event.target.address]
+
+                            self.actor_to_process_lock.release()
+
+                            if process_idx:
+                                queue = self.process_idx_to_queue[process_idx]
+
+                        queue.put(
                             MessageEvent(
                                 sender=actor_event.sender,
                                 target=actor_event.target,
@@ -111,7 +145,7 @@ class ExecutorService(mp.Process):
                     elif isinstance(actor_event, SpawnEvent):
                         actor_ref = ActorRef(actor_event.address)
 
-                        self.pipe.child_output_queue.put_nowait(
+                        self.pipe.child_output_queue.put(
                             ActorSpawnEvent(
                                 actor_type=actor_event.actor_type,
                                 parent_ref=actor_event.parent,
@@ -124,7 +158,7 @@ class ExecutorService(mp.Process):
                         actor_event = generator.send(actor_ref)
 
                     elif isinstance(actor_event, KillEvent):
-                        self.pipe.child_output_queue.put_nowait(
+                        self.pipe.child_output_queue.put(
                             ActorDeathEvent(
                                 actor_ref=actor_event.target,
                                 sender=actor_event.sender

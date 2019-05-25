@@ -3,13 +3,15 @@ import threading
 import multiprocessing as mp
 from typing import Dict, Callable, List, Optional
 
+from stardust.actor.config import SystemConfig
 from .pipe import Pipe
 import uuid
 from queue import Queue as ThreadingQueue
 from .system_events import (
     MessageEvent,
     ExecutionStopped, StopSystemExecution, StopExecution,
-    ActorLifecycleEvent, ActorSpawnEvent, ActorDeathEvent , ActorSpawnNotificationEvent
+    ActorLifecycleEvent, ActorSpawnEvent, ActorDeathEvent, ActorSpawnNotificationEvent,
+    ActorLocationEvent, ActorLocationRequest, ActorNetworkLocationEvent, ActorProcessLocationEvent
 )
 from .actor import Actor
 from .actor_ref import ActorRef
@@ -132,6 +134,15 @@ class OutgoingEventManager(threading.Thread):
 
                         process_idx = self.actor_to_process[event.target.address]
                         self.process_to_queue[process_idx].put(event)
+
+                        if event.sender.address in self.actor_to_process:
+                            sender_process_idx = self.actor_to_process[event.sender.address]
+                            self.process_to_queue[sender_process_idx].put(
+                                ActorProcessLocationEvent(
+                                    actor_ref=event.target,
+                                    process_idx=process_idx
+                                )
+                            )
 
                     else:
                         # ----------------------------------------------------------------------------------------------
@@ -264,7 +275,9 @@ class SystemEventManager(threading.Thread):
             queue.put(message)
 
     def schedule_kill(self, event: ActorDeathEvent):
+        # --------------------------------------------------------------------------------------------------------------
         self.actor_to_process_lock.acquire()
+        # ==============================================================================================================
 
         if event.actor_ref.address in self.actor_to_process:
             process_idx = self.actor_to_process[event.actor_ref.address]
@@ -272,7 +285,34 @@ class SystemEventManager(threading.Thread):
 
             queue.put(event)
 
+        # ==============================================================================================================
         self.actor_to_process_lock.release()
+        # --------------------------------------------------------------------------------------------------------------
+
+    def send_updated_location(self, event: ActorLocationRequest):
+        queue = self.process_to_pipe[event.process_idx].parent_output_queue
+
+        location_event = ActorNetworkLocationEvent(
+            actor_ref=event.actor_ref,
+            system_address="none"
+        )
+        # TODO: IMPLEMENT
+
+        # --------------------------------------------------------------------------------------------------------------
+        self.actor_to_process_lock.acquire()
+        # ==============================================================================================================
+
+        if event.actor_ref.address in self.actor_to_process:
+            location_event = ActorProcessLocationEvent(
+                actor_ref=event.actor_ref,
+                process_idx=self.actor_to_process[event.actor_ref.address]
+            )
+
+        # ==============================================================================================================
+        self.actor_to_process_lock.release()
+        # --------------------------------------------------------------------------------------------------------------
+
+        queue.put(location_event)
 
     def run(self) -> None:
 
@@ -292,6 +332,10 @@ class SystemEventManager(threading.Thread):
                 elif isinstance(event, ActorSpawnNotificationEvent):
                     self.flush_cache(event)
 
+            elif isinstance(event, ActorLocationEvent):
+                if isinstance(event, ActorLocationRequest):
+                    self.send_updated_location(event)
+
             else:
                 # TODO: IMPLEMENT
                 pass
@@ -301,8 +345,9 @@ class SystemEventManager(threading.Thread):
 
 
 class ActorSystem:
-    def __init__(self, name=None):
+    def __init__(self, name=None, config: Optional[SystemConfig] = None):
         self.running = True
+        self.config = config
 
         self.actor_to_process: Dict[str, int] = dict()
         self.actor_to_process_lock = threading.Lock()
@@ -321,20 +366,22 @@ class ActorSystem:
 
         self.process_to_pipe: Dict[int, Pipe] = {
             process_idx: Pipe()
-            for process_idx in range(mp.cpu_count() * 2)
+            for process_idx in range(mp.cpu_count() if not self.config else self.config.num_processes)
         }
 
-        self.process_to_queue = {
+        self.process_idx_to_queue: Dict[int, mp.Queue] = {
             process_idx: pipe.child_input_queue
             for process_idx, pipe in self.process_to_pipe.items()
         }
 
         self.workers = [
             ExecutorService(
+                process_idx=process_idx,
                 pipe=pipe,
-                system_ref=self.system_ref
+                system_ref=self.system_ref,
+                process_idx_to_queue=self.process_idx_to_queue
             )
-            for pipe in self.process_to_pipe.values()
+            for process_idx, pipe in self.process_to_pipe.items()
         ]
 
         self.incoming_events_managers = [
@@ -353,7 +400,7 @@ class ActorSystem:
             actor_to_process=self.actor_to_process,
             actor_to_process_lock=self.actor_to_process_lock,
             message_event_queue=self.message_event_queue,
-            process_to_queue=self.process_to_queue,
+            process_to_queue=self.process_idx_to_queue,
             message_cache=self.message_cache,
             message_cache_lock=self.message_cache_lock,
             running=lambda: self.running
@@ -397,7 +444,9 @@ class ActorSystem:
         self.system_event_queue.put(actor_death_event)
 
     def send(self, actor_ref, message):
+        # --------------------------------------------------------------------------------------------------------------
         self.message_event_queue_lock.acquire()
+        # ==============================================================================================================
 
         self.message_event_queue.put(
             MessageEvent(
@@ -407,7 +456,9 @@ class ActorSystem:
             )
         )
 
+        # ==============================================================================================================
         self.message_event_queue_lock.release()
+        # --------------------------------------------------------------------------------------------------------------
 
     def run(self):
         for worker in self.workers:
