@@ -128,8 +128,24 @@ class OutgoingEventManager(threading.Thread):
                     self.actor_to_process_lock.acquire()
                     # ==================================================================================================
 
-                    process_idx = self.actor_to_process[event.target.address]
-                    self.process_to_queue[process_idx].put(event)
+                    if event.target.address in self.actor_to_process:
+
+                        process_idx = self.actor_to_process[event.target.address]
+                        self.process_to_queue[process_idx].put(event)
+
+                    else:
+                        # ----------------------------------------------------------------------------------------------
+                        self.message_cache_lock.acquire()
+                        # ==============================================================================================
+
+                        if event.target.address not in self.message_cache:
+                            self.message_cache[event.target.address] = []
+
+                        self.message_cache[event.target.address].append(event)
+
+                        # ==============================================================================================
+                        self.message_cache_lock.release()
+                        # ----------------------------------------------------------------------------------------------
 
                     # ==================================================================================================
                     self.actor_to_process_lock.release()
@@ -187,7 +203,8 @@ class SystemEventManager(threading.Thread):
         self.message_cache_lock.acquire()
         # ==============================================================================================================
 
-        self.message_cache[event.address] = []
+        if event.address not in self.message_cache:
+            self.message_cache[event.address] = []
 
         # ==============================================================================================================
         self.message_cache_lock.release()
@@ -204,6 +221,8 @@ class SystemEventManager(threading.Thread):
             counts.append(self.process_actors_count[process_idx][actor_typename])
 
         target_process_idx = counts.index(min(counts))
+
+        self.process_actors_count[target_process_idx][actor_typename] += 1
 
         # --------------------------------------------------------------------------------------------------------------
         self.actor_to_process_lock.acquire()

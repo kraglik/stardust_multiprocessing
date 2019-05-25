@@ -76,8 +76,17 @@ class ExecutorService(mp.Process):
 
                 self.candidates_lock.acquire()
 
-                candidates = self.candidates - {self._previous_candidate if len(self.candidates) > 1 else None}
-                candidate: Atom = random.sample(candidates, k=1)[0]
+                candidates = self.candidates - {self._previous_candidate}
+
+                if len(candidates) == 0:
+                    candidates = self.candidates
+
+                    if len(candidates) == 0:
+                        self.candidates_lock.release()
+
+                        continue
+
+                candidate: Atom = random.sample(candidates, 1)[0]
                 self.candidates.remove(candidate)
 
                 self.candidates_lock.release()
