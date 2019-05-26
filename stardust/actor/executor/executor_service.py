@@ -143,7 +143,6 @@ class ExecutorService(mp.Process):
                                     )
                                 )
                         else:
-                            print('sending to parent...')
                             self.pipe.child_output_queue.put(
                                 MessageEvent(
                                     sender=actor_event.sender,
