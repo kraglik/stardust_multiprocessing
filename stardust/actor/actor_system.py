@@ -60,6 +60,21 @@ class IncomingEventManager(threading.Thread):
                 self.message_event_queue_lock.release()
                 # ------------------------------------------------------------------------------------------------------
 
+                # ------------------------------------------------------------------------------------------------------
+                self.system_event_queue_lock.acquire()
+                # ======================================================================================================
+
+                self.system_event_queue.put(
+                    ActorLocationRequest(
+                        target_actor_ref=event.target,
+                        sender_actor_ref=event.sender
+                    )
+                )
+
+                # ======================================================================================================
+                self.system_event_queue_lock.release()
+                # ------------------------------------------------------------------------------------------------------
+
             elif isinstance(event, ExecutionStopped):
                 break
 
@@ -145,6 +160,7 @@ class OutgoingEventManager(threading.Thread):
                             )
 
                     else:
+                        # TODO: UPDATE THIS PART (ActorUnknownLocation MUST BE SENT TO A SENDER)
                         # ----------------------------------------------------------------------------------------------
                         self.message_cache_lock.acquire()
                         # ==============================================================================================
@@ -290,10 +306,20 @@ class SystemEventManager(threading.Thread):
         # --------------------------------------------------------------------------------------------------------------
 
     def send_updated_location(self, event: ActorLocationRequest):
-        queue = self.process_to_pipe[event.process_idx].parent_output_queue
+        # --------------------------------------------------------------------------------------------------------------
+        self.actor_to_process_lock.acquire()
+        # ==============================================================================================================
+
+        process_idx = self.actor_to_process[event.sender_actor_ref.address]
+
+        # ==============================================================================================================
+        self.actor_to_process_lock.release()
+        # --------------------------------------------------------------------------------------------------------------
+
+        queue = self.process_to_pipe[process_idx].parent_output_queue
 
         location_event = ActorNetworkLocationEvent(
-            actor_ref=event.actor_ref,
+            actor_ref=event.target_actor_ref,
             system_address="none"
         )
         # TODO: IMPLEMENT
@@ -302,10 +328,10 @@ class SystemEventManager(threading.Thread):
         self.actor_to_process_lock.acquire()
         # ==============================================================================================================
 
-        if event.actor_ref.address in self.actor_to_process:
+        if event.target_actor_ref.address in self.actor_to_process:
             location_event = ActorProcessLocationEvent(
-                actor_ref=event.actor_ref,
-                process_idx=self.actor_to_process[event.actor_ref.address]
+                actor_ref=event.target_actor_ref,
+                process_idx=self.actor_to_process[event.target_actor_ref.address]
             )
 
         # ==============================================================================================================
@@ -332,9 +358,8 @@ class SystemEventManager(threading.Thread):
                 elif isinstance(event, ActorSpawnNotificationEvent):
                     self.flush_cache(event)
 
-            elif isinstance(event, ActorLocationEvent):
-                if isinstance(event, ActorLocationRequest):
-                    self.send_updated_location(event)
+            elif isinstance(event, ActorLocationRequest):
+                self.send_updated_location(event)
 
             else:
                 # TODO: IMPLEMENT

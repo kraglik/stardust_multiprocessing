@@ -113,12 +113,17 @@ class ExecutorService(mp.Process):
 
                 while actor_event != Done:
                     if isinstance(actor_event, SendEvent):
-                        queue = self.pipe.child_output_queue
-
                         if actor_event.target.address in self.local_addresses:
-                            queue = self.pipe.child_input_queue
+                            self.pipe.child_input_queue.put(
+                                MessageEvent(
+                                    sender=actor_event.sender,
+                                    target=actor_event.target,
+                                    message=actor_event.message,
+                                    context_code=actor_event.context_code
+                                )
+                            )
 
-                        else:
+                        elif actor_event.target.address in self.actor_to_process:
                             process_idx = None
 
                             self.actor_to_process_lock.acquire()
@@ -129,16 +134,24 @@ class ExecutorService(mp.Process):
                             self.actor_to_process_lock.release()
 
                             if process_idx:
-                                queue = self.process_idx_to_queue[process_idx]
-
-                        queue.put(
-                            MessageEvent(
-                                sender=actor_event.sender,
-                                target=actor_event.target,
-                                message=actor_event.message,
-                                context_code=actor_event.context_code
+                                self.process_idx_to_queue[process_idx].put(
+                                    MessageEvent(
+                                        sender=actor_event.sender,
+                                        target=actor_event.target,
+                                        message=actor_event.message,
+                                        context_code=actor_event.context_code
+                                    )
+                                )
+                        else:
+                            print('sending to parent...')
+                            self.pipe.child_output_queue.put(
+                                MessageEvent(
+                                    sender=actor_event.sender,
+                                    target=actor_event.target,
+                                    message=actor_event.message,
+                                    context_code=actor_event.context_code
+                                )
                             )
-                        )
 
                         actor_event = next(generator)
 

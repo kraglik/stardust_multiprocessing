@@ -146,14 +146,6 @@ class ExecutorEventManager(threading.Thread):
             self.pipe.child_output_queue.put(event)
 
     def update_actor_location(self, event: ActorLocationEvent):
-        if isinstance(event, ActorLocationChanged):
-            self.pipe.child_output_queue.put(
-                ActorLocationRequest(
-                    actor_ref=event.actor_ref,
-                    process_idx=self.process_idx
-                )
-            )
-
         if isinstance(event, ActorProcessLocationEvent):
             # ----------------------------------------------------------------------------------------------------------
             self.actor_to_process_lock.acquire()

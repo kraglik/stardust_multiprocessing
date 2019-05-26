@@ -61,8 +61,8 @@ class ActorLocationChanged(ActorLocationEvent):
 
 @dataclass(frozen=True)
 class ActorLocationRequest(ActorLocationEvent):
-    actor_ref: ActorRef
-    process_idx: int
+    target_actor_ref: ActorRef
+    sender_actor_ref: ActorRef
 
 
 @dataclass(frozen=True)

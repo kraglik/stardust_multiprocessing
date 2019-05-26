@@ -41,7 +41,7 @@ def main():
     )
     system.run()
 
-    for _ in range(4):
+    for _ in range(8):
         system.spawn(Ping)
 
     time.sleep(60)
