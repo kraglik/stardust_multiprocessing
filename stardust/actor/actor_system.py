@@ -10,8 +10,7 @@ from queue import Queue as ThreadingQueue
 from .system_events import (
     MessageEvent,
     ExecutionStopped, StopSystemExecution, StopExecution,
-    ActorLifecycleEvent, ActorSpawnEvent, ActorDeathEvent, ActorSpawnNotificationEvent,
-    ActorLocationEvent, ActorLocationRequest, ActorNetworkLocationEvent, ActorProcessLocationEvent
+    ActorLifecycleEvent, ActorSpawnEvent, ActorDeathEvent, ActorSpawnNotificationEvent
 )
 from .actor import Actor
 from .actor_ref import ActorRef
@@ -60,21 +59,6 @@ class IncomingEventManager(threading.Thread):
                 self.message_event_queue_lock.release()
                 # ------------------------------------------------------------------------------------------------------
 
-                # ------------------------------------------------------------------------------------------------------
-                self.system_event_queue_lock.acquire()
-                # ======================================================================================================
-
-                self.system_event_queue.put(
-                    ActorLocationRequest(
-                        target_actor_ref=event.target,
-                        sender_actor_ref=event.sender
-                    )
-                )
-
-                # ======================================================================================================
-                self.system_event_queue_lock.release()
-                # ------------------------------------------------------------------------------------------------------
-
             elif isinstance(event, ExecutionStopped):
                 break
 
@@ -98,7 +82,7 @@ class OutgoingEventManager(threading.Thread):
                  actor_to_process: Dict[str, int],
                  actor_to_process_lock: threading.Lock,
 
-                 process_to_queue: Dict[int, mp.Queue],
+                 process_to_queue: Dict[int, ThreadingQueue],
 
                  message_cache: Dict[str, List[MessageEvent]],
                  message_cache_lock: threading.Lock,
@@ -149,15 +133,6 @@ class OutgoingEventManager(threading.Thread):
 
                         process_idx = self.actor_to_process[event.target.address]
                         self.process_to_queue[process_idx].put(event)
-
-                        if event.sender.address in self.actor_to_process:
-                            sender_process_idx = self.actor_to_process[event.sender.address]
-                            self.process_to_queue[sender_process_idx].put(
-                                ActorProcessLocationEvent(
-                                    actor_ref=event.target,
-                                    process_idx=process_idx
-                                )
-                            )
 
                     else:
                         # TODO: UPDATE THIS PART (ActorUnknownLocation MUST BE SENT TO A SENDER)
@@ -305,41 +280,6 @@ class SystemEventManager(threading.Thread):
         self.actor_to_process_lock.release()
         # --------------------------------------------------------------------------------------------------------------
 
-    def send_updated_location(self, event: ActorLocationRequest):
-        # --------------------------------------------------------------------------------------------------------------
-        self.actor_to_process_lock.acquire()
-        # ==============================================================================================================
-
-        process_idx = self.actor_to_process[event.sender_actor_ref.address]
-
-        # ==============================================================================================================
-        self.actor_to_process_lock.release()
-        # --------------------------------------------------------------------------------------------------------------
-
-        queue = self.process_to_pipe[process_idx].parent_output_queue
-
-        location_event = ActorNetworkLocationEvent(
-            actor_ref=event.target_actor_ref,
-            system_address="none"
-        )
-        # TODO: IMPLEMENT
-
-        # --------------------------------------------------------------------------------------------------------------
-        self.actor_to_process_lock.acquire()
-        # ==============================================================================================================
-
-        if event.target_actor_ref.address in self.actor_to_process:
-            location_event = ActorProcessLocationEvent(
-                actor_ref=event.target_actor_ref,
-                process_idx=self.actor_to_process[event.target_actor_ref.address]
-            )
-
-        # ==============================================================================================================
-        self.actor_to_process_lock.release()
-        # --------------------------------------------------------------------------------------------------------------
-
-        queue.put(location_event)
-
     def run(self) -> None:
 
         while self.running():
@@ -358,9 +298,6 @@ class SystemEventManager(threading.Thread):
                 elif isinstance(event, ActorSpawnNotificationEvent):
                     self.flush_cache(event)
 
-            elif isinstance(event, ActorLocationRequest):
-                self.send_updated_location(event)
-
             else:
                 # TODO: IMPLEMENT
                 pass
@@ -374,8 +311,10 @@ class ActorSystem:
         self.running = True
         self.config = config
 
-        self.actor_to_process: Dict[str, int] = dict()
-        self.actor_to_process_lock = threading.Lock()
+        self.manager = mp.Manager()
+
+        self.actor_to_process: Dict[str, int] = self.manager.dict()
+        self.actor_to_process_lock = self.manager.Lock()
 
         # ActorAddress -> [Event]. Used in case when actor is not yet started, but has already received some messages.
         self.message_cache: Dict[str, List[MessageEvent]] = dict()
@@ -390,11 +329,11 @@ class ActorSystem:
         self.system_event_queue_lock = threading.Lock()
 
         self.process_to_pipe: Dict[int, Pipe] = {
-            process_idx: Pipe()
+            process_idx: Pipe(self.manager.Queue(), self.manager.Queue())
             for process_idx in range(mp.cpu_count() if not self.config else self.config.num_processes)
         }
 
-        self.process_idx_to_queue: Dict[int, mp.Queue] = {
+        self.process_idx_to_queue: Dict[int, ThreadingQueue] = {
             process_idx: pipe.child_input_queue
             for process_idx, pipe in self.process_to_pipe.items()
         }
@@ -404,7 +343,8 @@ class ActorSystem:
                 process_idx=process_idx,
                 pipe=pipe,
                 system_ref=self.system_ref,
-                process_idx_to_queue=self.process_idx_to_queue
+                process_idx_to_queue=self.process_idx_to_queue,
+                actor_to_process=self.actor_to_process
             )
             for process_idx, pipe in self.process_to_pipe.items()
         ]
@@ -516,3 +456,5 @@ class ActorSystem:
 
         self.message_event_queue.put(StopSystemExecution())
         self.outgoing_event_manager.join()
+
+        self.manager.shutdown()

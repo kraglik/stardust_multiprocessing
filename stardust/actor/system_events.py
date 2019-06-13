@@ -50,33 +50,6 @@ class ActorSpawnNotificationEvent(ActorLifecycleEvent):
     error: Optional[Exception] = None
 
 
-class ActorLocationEvent(SystemEvent):
-    pass
-
-
-@dataclass(frozen=True)
-class ActorLocationChanged(ActorLocationEvent):
-    actor_ref: ActorRef
-
-
-@dataclass(frozen=True)
-class ActorLocationRequest(ActorLocationEvent):
-    target_actor_ref: ActorRef
-    sender_actor_ref: ActorRef
-
-
-@dataclass(frozen=True)
-class ActorProcessLocationEvent(ActorLocationEvent):
-    process_idx: int
-    actor_ref: ActorRef
-
-
-@dataclass(frozen=True)
-class ActorNetworkLocationEvent(ActorLocationEvent):
-    system_address: str
-    actor_ref: ActorRef
-
-
 @dataclass(frozen=True)
 class StopExecution(SystemEvent):
     pass

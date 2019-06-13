@@ -5,13 +5,13 @@ import stardust
 class Ping(stardust.Actor):
     def __init__(self, *args, **kwargs):
         super(Ping, self).__init__(*args, **kwargs)
-        self.n = 100_000
+        self.n = 100
 
     def receive(self, message, sender):
         if isinstance(message, str):
             self.n -= 1
 
-            if self.n % 1000 == 0:
+            if self.n % 50 == 0:
                 print(self.n)
 
             if self.n == 0:
@@ -36,7 +36,7 @@ def main():
     system = stardust.ActorSystem(
         name="Ping-Pong",
         config=stardust.SystemConfig(
-            num_processes=4
+            num_processes=6
         )
     )
     system.run()
@@ -44,7 +44,7 @@ def main():
     for _ in range(8):
         system.spawn(Ping)
 
-    time.sleep(60)
+    time.sleep(15)
 
     system.stop()
 

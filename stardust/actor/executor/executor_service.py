@@ -27,6 +27,7 @@ class ExecutorService(mp.Process):
                  pipe: Pipe,
                  system_ref: ActorRef,
                  process_idx_to_queue: Dict[int, mp.Queue],
+                 actor_to_process: Dict[str, int],
 
                  *args, **kwargs):
 
@@ -37,8 +38,7 @@ class ExecutorService(mp.Process):
         self.system_ref = system_ref
         self.process_idx_to_queue = process_idx_to_queue
 
-        self.actor_to_process: Dict[str, int] = dict()
-        self.actor_to_process_lock = threading.Lock()
+        self.actor_to_process: Dict[str, int] = actor_to_process
         self.atom_by_name: Dict[str, Atom] = dict()
         self.local_addresses: Set[str] = set()
 
@@ -62,7 +62,6 @@ class ExecutorService(mp.Process):
             suspended_atoms_lock=self.suspended_atoms_lock,
             execution_condition=self.execution_condition,
             actor_to_process=self.actor_to_process,
-            actor_to_process_lock=self.actor_to_process_lock,
             pipe=self.pipe,
             stop=self.stop
         )
@@ -113,7 +112,9 @@ class ExecutorService(mp.Process):
 
                 while actor_event != Done:
                     if isinstance(actor_event, SendEvent):
-                        if actor_event.target.address in self.local_addresses:
+                        process_idx = self.actor_to_process.get(actor_event.target.address, None)
+
+                        if process_idx == self.process_idx:
                             self.pipe.child_input_queue.put(
                                 MessageEvent(
                                     sender=actor_event.sender,
@@ -123,16 +124,7 @@ class ExecutorService(mp.Process):
                                 )
                             )
 
-                        elif actor_event.target.address in self.actor_to_process:
-                            process_idx = None
-
-                            self.actor_to_process_lock.acquire()
-
-                            if actor_event.target.address in self.actor_to_process:
-                                process_idx = self.actor_to_process[actor_event.target.address]
-
-                            self.actor_to_process_lock.release()
-
+                        elif process_idx is not None:
                             if process_idx:
                                 self.process_idx_to_queue[process_idx].put(
                                     MessageEvent(

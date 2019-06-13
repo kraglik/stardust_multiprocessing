@@ -11,8 +11,6 @@ from stardust.actor.pipe import Pipe
 from stardust.actor.system_events import (
     SystemEvent,
     MessageEvent,
-    ActorLocationEvent, ActorProcessLocationEvent, ActorNetworkLocationEvent,
-    ActorLocationChanged, ActorLocationRequest,
     ActorSpawnEvent, ActorSpawnNotificationEvent, ActorDeathEvent,
     StopExecution, StartupEvent
 )
@@ -30,7 +28,6 @@ class ExecutorEventManager(threading.Thread):
                  suspended_atoms: Dict[str, Generator],
                  suspended_atoms_lock: threading.Lock,
                  actor_to_process: Dict[str, int],
-                 actor_to_process_lock: threading.Lock,
                  execution_condition: threading.Condition,
                  pipe: Pipe,
                  stop: Callable[[], None],
@@ -49,7 +46,6 @@ class ExecutorEventManager(threading.Thread):
         self.candidates_lock = candidates_lock
 
         self.actor_to_process = actor_to_process
-        self.actor_to_process_lock = actor_to_process_lock
 
         self.suspended_atoms = suspended_atoms
         self.suspended_atoms_lock = suspended_atoms_lock
@@ -145,22 +141,6 @@ class ExecutorEventManager(threading.Thread):
         else:
             self.pipe.child_output_queue.put(event)
 
-    def update_actor_location(self, event: ActorLocationEvent):
-        if isinstance(event, ActorProcessLocationEvent):
-            # ----------------------------------------------------------------------------------------------------------
-            self.actor_to_process_lock.acquire()
-            # ==========================================================================================================
-
-            self.actor_to_process[event.actor_ref.address] = event.process_idx
-
-            # ==========================================================================================================
-            self.actor_to_process_lock.release()
-            # ----------------------------------------------------------------------------------------------------------
-
-        elif isinstance(event, ActorNetworkLocationEvent):
-            # TODO: IMPLEMENT
-            pass
-
     def run(self) -> None:
 
         while True:
@@ -174,9 +154,6 @@ class ExecutorEventManager(threading.Thread):
 
             elif isinstance(event, MessageEvent):
                 self.send(event)
-
-            elif isinstance(event, ActorLocationEvent):
-                self.update_actor_location(event)
 
             elif isinstance(event, StopExecution):
                 break
